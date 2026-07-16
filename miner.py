@@ -8,7 +8,9 @@ Run with PYTHONPATH including both this directory and the Poker44-subnet repo:
         --blacklist.force_validator_permit
 """
 
-from __future__ import annotations
+# NOTE: no `from __future__ import annotations` here — bittensor's axon.attach
+# introspects the forward() signature at runtime and needs a real class, not a
+# string annotation.
 
 import sys
 import time
