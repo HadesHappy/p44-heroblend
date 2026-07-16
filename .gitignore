@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+artifacts/model.pkl
+artifacts/train_meta.json
+.env
