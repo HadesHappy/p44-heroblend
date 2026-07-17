@@ -84,7 +84,13 @@ class ChunkPredictor:
             dtype=np.float64,
         )
         raw = np.mean([m.predict_proba(X)[:, 1] for m in self.models.values()], axis=0)
-        final = self._cap_flag_fraction(self._remap(self.calibrator.predict(raw)))
+        # Isotonic calibration is a step function: chunks collapse into a
+        # handful of tied score values, which destroys rank metrics (validators
+        # sort our scores) and defeats the flag cap. Blend in a sliver of the
+        # continuous raw ensemble score so ordering is strict while calibration
+        # stays essentially intact.
+        cal = 0.98 * self.calibrator.predict(raw) + 0.02 * raw
+        final = self._cap_flag_fraction(self._remap(cal))
         for i, s in zip(valid_index, final):
             scores[i] = float(np.round(np.clip(s, 0.0, 1.0), 6))
         return scores
