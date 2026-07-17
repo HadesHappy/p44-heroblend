@@ -21,6 +21,13 @@ MODEL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(MODEL_DIR))
 
 import bittensor as bt
+from bittensor.utils import axon_utils
+
+# Validators sign a synapse once, then fan the large chunk payload out to many
+# miners; slow fan-out lands fresh requests outside the default 4s+timeout
+# nonce window ("Nonce is too old" rejections). Widen the window — the per-
+# hotkey monotonic nonce check still blocks actual replays.
+axon_utils.ALLOWED_DELTA = 300 * 1_000_000_000  # 300s in nanoseconds
 
 from poker44.base.miner import BaseMinerNeuron
 from poker44.utils.model_manifest import (
