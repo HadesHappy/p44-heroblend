@@ -37,6 +37,7 @@ from poker44.utils.model_manifest import (
 )
 from poker44.validator.synapse import DetectionSynapse
 
+from capture import capture_chunks
 from predictor import ChunkPredictor
 
 
@@ -88,6 +89,7 @@ class ModelMiner(BaseMinerNeuron):
         started = time.time()
         chunks = synapse.chunks or []
         scores = self.predictor.score_chunks(chunks)
+        capture_chunks(chunks, scores)
         synapse.risk_scores = scores
         synapse.predictions = [s >= 0.5 for s in scores]
         synapse.model_manifest = dict(self.model_manifest)

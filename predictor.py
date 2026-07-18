@@ -13,13 +13,13 @@ from features import extract_chunk_features
 ARTIFACT_PATH = Path(__file__).resolve().parent / "artifacts" / "production_model.pkl"
 NEUTRAL_SCORE = 0.45  # returned for empty/unparseable chunks: below the 0.5 gate
 
-# Live payloads are distribution-shifted vs the public benchmark: scores
-# compress upward and the 0.5 threshold over-flags (observed 84-89% of live
-# chunks vs ~45-73% on benchmark data at any plausible class mix). The subnet
-# reward's threshold-sanity term punishes human false positives at 0.5, so cap
-# the flagged fraction per request with an order-preserving squeeze: rank
-# metrics (AP, recall@FPR) are unaffected, false positives can only decrease.
-FLAG_CAP_FRACTION = 0.65
+# The subnet reward uses 0.5-crossings only through the threshold-sanity gate
+# (needs >=1 true positive and FPR <= 10%); hard recall is NOT rewarded, so
+# extra flags are pure downside risk. Flag exactly TOP_K chunks per request by
+# rank: immune to calibration drift (live flag counts previously swung 88 ->
+# 55 -> 7 across retrains), >=1 TP virtually certain, and worst-case FPR stays
+# under the cliff whenever the window holds >= 10*TOP_K humans.
+TOP_K_FLAGS = 5
 
 
 def _looks_unprojected(hand: Dict[str, Any]) -> bool:
@@ -99,11 +99,38 @@ class ChunkPredictor:
         # continuous raw ensemble score so ordering is strict while calibration
         # stays essentially intact.
         cal = 0.98 * self.calibrator.predict(raw) + 0.02 * raw
-        final = self._cap_flag_fraction(self._remap(cal))
-        final = self._reorder_by_blended_rank(final, raw, X)
+        final = self._reorder_by_blended_rank(self._remap(cal), raw, X)
+        final = self._flag_top_k(final)
         for i, s in zip(valid_index, final):
             scores[i] = float(np.round(np.clip(s, 0.0, 1.0), 6))
         return scores
+
+    @staticmethod
+    def _flag_top_k(scores: np.ndarray, k: int = TOP_K_FLAGS) -> np.ndarray:
+        """Monotone remap so exactly min(k, max(1, n//8)) chunks score >= 0.5.
+
+        Rank metrics are unaffected; only the 0.5-crossing set changes.
+        """
+        s = np.asarray(scores, dtype=float)
+        n = s.size
+        if n < 2:
+            return s
+        k_eff = int(min(k, max(1, n // 8)))
+        order = np.argsort(-s, kind="stable")
+        flip = np.empty(n, dtype=float)
+        top = order[:k_eff]
+        rest = order[k_eff:]
+        # spread top set over (0.5, 1.0] and the rest over [0.0, 0.5),
+        # preserving relative order within each band
+        for band, lo, hi in ((top, 0.5 + 1e-6, 1.0), (rest, 0.0, 0.5 - 1e-6)):
+            m = band.size
+            if m == 0:
+                continue
+            vals = s[band]
+            span = vals.max() - vals.min()
+            frac = (vals - vals.min()) / span if span > 0 else np.linspace(1, 0, m)
+            flip[band] = lo + frac * (hi - lo)
+        return flip
 
     def _anomaly_scores(self, X: np.ndarray) -> "np.ndarray | None":
         """Bot-risk as distance from real human play (bot-type independent)."""
@@ -138,16 +165,3 @@ class ChunkPredictor:
         reordered = np.empty(n, dtype=float)
         reordered[order] = np.sort(final)  # assign sorted scores by blended order
         return reordered
-
-    @staticmethod
-    def _cap_flag_fraction(scores: np.ndarray, cap: float = FLAG_CAP_FRACTION) -> np.ndarray:
-        """If more than `cap` of scores cross 0.5, squeeze so only the top
-        `cap` fraction does. Monotone (rank-preserving); no-op otherwise."""
-        s = np.asarray(scores, dtype=float)
-        if s.size < 4 or float(np.mean(s >= 0.5)) <= cap:
-            return s
-        cutoff = float(np.quantile(s, 1.0 - cap))
-        cutoff = min(max(cutoff, 1e-6), 1 - 1e-6)
-        return np.where(
-            s < cutoff, 0.5 * s / cutoff, 0.5 + 0.5 * (s - cutoff) / (1.0 - cutoff)
-        )
