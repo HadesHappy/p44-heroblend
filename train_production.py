@@ -17,7 +17,7 @@ from sklearn.calibration import IsotonicRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import GroupKFold
 
-from train import META_COLS, FEATURES_PATH, ARTIFACT_DIR, make_models, pick_operating_threshold, remap_scores
+from train import META_COLS, FEATURES_PATH, ARTIFACT_DIR, SEED, make_models, pick_operating_threshold, remap_scores
 from poker44.score.scoring import reward
 
 N_FOLDS = 10
@@ -61,6 +61,20 @@ def main() -> None:
         model.fit(X, y)
         fitted[name] = model
 
+    # Human-anchored anomaly component: benchmark bots are synthetic while live
+    # bots are real, so the supervised ranking transfers weakly. A model of
+    # human play generalizes to any bot type. Fit on human rows only.
+    from sklearn.ensemble import IsolationForest
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.preprocessing import StandardScaler
+
+    X_human = X[y == 0]
+    anomaly_scaler = StandardScaler().fit(X_human)
+    Xh = anomaly_scaler.transform(X_human)
+    anomaly_iso = IsolationForest(n_estimators=300, random_state=SEED).fit(Xh)
+    anomaly_knn = NearestNeighbors(n_neighbors=10).fit(Xh)
+    print(f"anomaly component fitted on {len(X_human)} human rows")
+
     ARTIFACT_DIR.mkdir(exist_ok=True)
     out = ARTIFACT_DIR / "production_model.pkl"
     with open(out, "wb") as f:
@@ -69,6 +83,9 @@ def main() -> None:
             "calibrator": calibrator,
             "feature_cols": feature_cols,
             "operating_threshold": op_threshold,
+            "anomaly_scaler": anomaly_scaler,
+            "anomaly_iso": anomaly_iso,
+            "anomaly_knn": anomaly_knn,
         }, f)
     (ARTIFACT_DIR / "production_meta.json").write_text(json.dumps({
         "n_groups": len(df),
