@@ -151,6 +151,35 @@ def _hand_stats(hand: Dict[str, Any]) -> Dict[str, Any]:
     return stats
 
 
+def add_batch_rank_features(rows: List[Dict[str, float]]) -> List[Dict[str, float]]:
+    """Append within-batch percentile-rank versions of every feature.
+
+    Live payloads are distribution-shifted relative to the benchmark; a chunk's
+    feature percentile within its evaluation batch is invariant to any monotone
+    global shift. At training time the "batch" is one release date's groups; at
+    serving time it is the chunks of one validator request (same daily
+    snapshot), so the construction matches.
+    """
+    if not rows:
+        return rows
+    n = len(rows)
+    if n < 5:
+        for row in rows:
+            for name in [k for k in row]:
+                row[f"rk_{name}"] = 0.5
+        return rows
+    names = list(rows[0].keys())
+    for name in names:
+        values = [float(row.get(name, 0.0)) for row in rows]
+        order = sorted(range(n), key=lambda i: values[i])
+        ranks = [0.0] * n
+        for pos, i in enumerate(order):
+            ranks[i] = pos / (n - 1)
+        for row, r in zip(rows, ranks):
+            row[f"rk_{name}"] = r
+    return rows
+
+
 def extract_chunk_features(hands: List[Dict[str, Any]]) -> Dict[str, float]:
     """One flat feature dict for a chunk group of projected hands."""
     per_hand = [_hand_stats(h) for h in hands if isinstance(h, dict)]

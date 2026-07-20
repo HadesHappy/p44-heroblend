@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from features import extract_chunk_features
+from features import add_batch_rank_features, extract_chunk_features
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "artifacts" / "production_model.pkl"
 NEUTRAL_SCORE = 0.45  # returned for empty/unparseable chunks: below the 0.5 gate
@@ -88,6 +88,7 @@ class ChunkPredictor:
         if not feature_rows:
             return scores
 
+        add_batch_rank_features(feature_rows)
         X = np.array(
             [[row.get(col, 0.0) for col in self.feature_cols] for row in feature_rows],
             dtype=np.float64,

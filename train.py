@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.calibration import IsotonicRegression
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import GroupKFold
@@ -63,6 +63,14 @@ def make_models():
         "logreg": make_pipeline(
             StandardScaler(),
             LogisticRegression(C=0.2, max_iter=2000, random_state=SEED),
+        ),
+        "extratrees": ExtraTreesClassifier(
+            n_estimators=500,
+            max_features="sqrt",
+            min_samples_leaf=5,
+            class_weight="balanced_subsample",
+            random_state=SEED,
+            n_jobs=-1,
         ),
     }
 
@@ -135,7 +143,7 @@ def main() -> None:
     print("\n=== OOF metrics (dev) ===")
     for name, preds in oof.items():
         print(f"{name:8s} AUC={roc_auc_score(y_dev, preds):.4f} AP={average_precision_score(y_dev, preds):.4f}")
-    blend_oof = np.mean([oof["lgbm"], oof["histgb"], oof["logreg"]], axis=0)
+    blend_oof = np.mean([oof[name] for name in oof], axis=0)
     print(f"{'blend':8s} AUC={roc_auc_score(y_dev, blend_oof):.4f} AP={average_precision_score(y_dev, blend_oof):.4f}")
 
     # Refit every model on the full dev set, calibrate the blend on OOF preds.

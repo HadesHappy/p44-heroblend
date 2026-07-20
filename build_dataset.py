@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from features import extract_chunk_features  # noqa: E402
+from features import add_batch_rank_features, extract_chunk_features  # noqa: E402
 
 from poker44.validator.payload_view import prepare_hand_for_miner  # noqa: E402
 
@@ -46,18 +46,25 @@ def main() -> None:
 
         source_date = str(payload["chunks"][0].get("sourceDate") or "") if payload["chunks"] else ""
 
-        # original 30-40 hand groups
+        # original 30-40 hand groups; batch-rank features computed over the
+        # date's full group set (mirrors one live validator request)
+        group_feats, group_meta = [], []
         for projected, label, split, chunk_id, group_index in date_groups:
             feats = extract_chunk_features(projected)
             if not feats:
                 continue
-            feats.update(
+            group_feats.append(feats)
+            group_meta.append(dict(
                 label=label, source_date=source_date, split=split, chunk_id=chunk_id,
                 group_index=group_index, n_hands=len(projected), kind="group",
-            )
+            ))
+        add_batch_rank_features(group_feats)
+        for feats, meta in zip(group_feats, group_meta):
+            feats.update(meta)
             rows.append(feats)
 
         # merged same-label triples: live-sized ~100 hand chunks
+        merged_feats, merged_meta = [], []
         for label_value in (0, 1):
             same = [g for g in date_groups if g[1] == label_value]
             for j in range(0, len(same) - MERGE_SIZE + 1, MERGE_SIZE):
@@ -65,12 +72,16 @@ def main() -> None:
                 feats = extract_chunk_features(merged_hands)
                 if not feats:
                     continue
-                feats.update(
+                merged_feats.append(feats)
+                merged_meta.append(dict(
                     label=label_value, source_date=source_date, split="merged",
                     chunk_id=same[j][3], group_index=j, n_hands=len(merged_hands),
                     kind="merged3",
-                )
-                rows.append(feats)
+                ))
+        add_batch_rank_features(merged_feats)
+        for feats, meta in zip(merged_feats, merged_meta):
+            feats.update(meta)
+            rows.append(feats)
 
         print(
             f"[{file_index}/{len(files)}] {Path(path).name}: {len(rows)} total rows "
