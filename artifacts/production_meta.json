@@ -1,7 +1,7 @@
 {
-  "n_groups": 3874,
-  "n_dates": 57,
-  "operating_threshold": 0.9850746268656716,
-  "oof_mean_composite": 0.8656949357665715,
-  "oof_min_composite": 0.662875
+  "n_groups": 4092,
+  "n_dates": 58,
+  "operating_threshold": 0.9818181818181818,
+  "oof_mean_composite": 0.8702221403222341,
+  "oof_min_composite": 0.6598011363636364
 }
